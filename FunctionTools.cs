@@ -9,7 +9,7 @@ namespace dwmuller.HomeNet
         public static bool? GetBoolParam(HttpRequest req, string key, dynamic reqBody = null)
         {
             bool? result = TryStringToBool(req.Query[key]);
-            if (!result.HasValue && !reqBody is null)
+            if (!result.HasValue && !(reqBody is null))
             {
                 result = reqBody[key];
             }
@@ -19,7 +19,7 @@ namespace dwmuller.HomeNet
         public static string GetStringParam(HttpRequest req, string key, dynamic reqBody = null)
         {
             string result = req.Query[key];
-            if (string.IsNullOrEmpty(result) && !reqBody is null)
+            if (string.IsNullOrEmpty(result) && !(reqBody is null))
             {
                 result = reqBody[key];
             }
