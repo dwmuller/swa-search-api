@@ -1,4 +1,3 @@
-using System.IO;
 using System.Threading.Tasks;
 using System.Linq;
 using Microsoft.AspNetCore.Mvc;
@@ -6,7 +5,6 @@ using Microsoft.Azure.WebJobs;
 using Microsoft.Azure.WebJobs.Extensions.Http;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
-using Newtonsoft.Json;
 using Azure.Search.Documents.Indexes;
 using Azure.Search.Documents.Indexes.Models;
 
@@ -21,7 +19,14 @@ namespace dwmuller.HomeNet
         {
             log.LogInformation($"{nameof(CreateIndex)} processing HTTP request.");
 
-            var cfg = new Configuration();
+            var principal = StaticWebAppsAuth.Parse(req);
+            if (!principal.IsInRole("admin"))
+            {
+                log.LogWarning($"Non-administrator attempted to (re)create index.");
+                return new UnauthorizedResult();
+            }
+
+            var cfg = new Configuration(req);
             var indexClient = IndexTools.CreateIndexClient(cfg);
             var indexFields = new FieldBuilder().Build(typeof(Doc));
             var index = new SearchIndex(cfg.SearchIndexName, indexFields);

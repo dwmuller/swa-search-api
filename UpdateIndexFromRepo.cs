@@ -1,18 +1,18 @@
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
+
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Azure.WebJobs;
 using Microsoft.Azure.WebJobs.Extensions.Http;
-using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
-using Newtonsoft.Json;
+
 using Azure.Search.Documents;
 using Azure.Search.Documents.Models;
-using Octokit;
-using System.Linq;
+using Newtonsoft.Json;
 
 namespace dwmuller.HomeNet
 {
@@ -28,38 +28,70 @@ namespace dwmuller.HomeNet
             string requestBody = await new StreamReader(req.Body).ReadToEndAsync();
             dynamic data = JsonConvert.DeserializeObject(requestBody);
 
+            string requestedSitesString = FunctionTools.GetStringParam(req, "sites", data) ?? string.Empty;
+            var requestedSites = requestedSitesString.Split(',', System.StringSplitOptions.RemoveEmptyEntries);
             bool force = FunctionTools.GetBoolParam(req, "force", data) ?? false;
 
-            var cfg = new Configuration();
+            var user = StaticWebAppsAuth.Parse(req);
 
-            var searchClient = IndexTools.CreateSearchClient(cfg, withWritePermissions: true);
-            var searchOptions = new SearchOptions()
+            var cfg = new Configuration(req);
+            if (!requestedSites.Any())
             {
-                Filter = $"{nameof(Doc.Site)} eq '{cfg.SiteName}'"
-            };
-            searchOptions.Select.Add(nameof(Doc.Id));
-            searchOptions.Select.Add(nameof(Doc.Path));
-            var hashGetResponse = (await searchClient.SearchAsync<Doc>("", searchOptions)).Value;
-            var hashGetResults = hashGetResponse.GetResultsAsync();
-            var hashDict = await hashGetResults.ToDictionaryAsync(item => item.Document.Id, item => item.Document.Path);
-            log.LogDebug($"Retrieved {hashDict.Count} doc hashes.");
-
-            // If we're forcing a rebuild of index content, then delete all
-            // documents on this site first.
-            if (force && hashDict.Any())
-            {
-                searchClient.DeleteDocuments(nameof(Doc.Id), hashDict.Keys);
-                log.LogInformation($"Forced site update: {hashDict.Count} documents in site {cfg.SiteName} deleted.");
-                hashDict = new Dictionary<string, string>();
+                log.LogInformation($"UpdateIndexFromRepo: No sites specified");
+                return new BadRequestObjectResult("No sites specified.");
             }
 
-            var githubClient = GitTools.CreateGitHubClient(cfg);
-            var repo = await githubClient.Repository.Get(cfg.GitHubRepoOwner, cfg.GitHubRepoName);
-            var content = githubClient.Repository.Content;
+            var siteConfigs = ( 
+                from s in await cfg.GetSiteConfigs()
+                where requestedSites.Contains(s.SiteName)
+                select s).ToArray();
+
+            if (siteConfigs.Length != requestedSites.Length)
+            {
+                var names = string.Join(
+                    ", ", 
+                    from s in requestedSites where !siteConfigs.Any(c=>c.SiteName == s) select s);
+                log.LogWarning($"UpdateIndexFromRepo: User {user.Identity.Name} specified unknown site(s) ${names}.");
+                return new BadRequestObjectResult($"Unknown site(s) specified: {names}");
+            }
+            if (siteConfigs.Any(c => !user.CanManage(c)))
+            {
+                var names = string.Join(
+                    ", ", 
+                    from c in siteConfigs where !user.CanRead(c) select c.SiteName);
+                log.LogWarning($"UpdateIndexFromRepo: User {user.Identity.Name} not authorized to admin site(s) ${names}.");
+                return new UnauthorizedResult();
+            }
+
+            var searchClient = IndexTools.CreateSearchClient(cfg, withWritePermissions: true);
             var batch = new IndexDocumentsBatch<Doc>();
 
-            await IndexDir(repo.Id, cfg.SiteName, cfg.GitHubIndexableDocRoot, "", content, batch, hashDict, log);
+            foreach (var siteCfg in siteConfigs)
+            {
+                var siteName = siteCfg.SiteName;
+                var searchOptions = new SearchOptions()
+                {
+                    Filter = $"{nameof(Doc.Site)} eq '{siteName}'"
+                };
+                searchOptions.Select.Add(nameof(Doc.Id));
+                searchOptions.Select.Add(nameof(Doc.Path));
+                var hashGetResponse = (await searchClient.SearchAsync<Doc>("", searchOptions)).Value;
+                var hashGetResults = hashGetResponse.GetResultsAsync();
+                var hashDict = await hashGetResults.ToDictionaryAsync(item => item.Document.Id, item => item.Document.Path);
+                log.LogDebug($"Retrieved {hashDict.Count} doc hashes.");
 
+                // If we're forcing a rebuild of index content, then delete all
+                // documents on this site first.
+                if (force && hashDict.Any())
+                {
+                    searchClient.DeleteDocuments(nameof(Doc.Id), hashDict.Keys);
+                    log.LogInformation($"Forced site update: {hashDict.Count} documents in site {siteName} deleted.");
+                    hashDict = new Dictionary<string, string>();
+                }
+                await GitTools.VisitRepoFiles(cfg.AppName, cfg.GitHubApiKey, siteCfg, log,
+                    (id, itemPath, getContent) => ProcessFile(siteCfg, batch, hashDict, log, id, itemPath, getContent));
+
+            }
             if (batch.Actions.Any())
             {
                 var response = await searchClient.IndexDocumentsAsync(batch);
@@ -67,61 +99,39 @@ namespace dwmuller.HomeNet
             return new OkObjectResult($"Indexed {batch.Actions.Count} documents.");
         }
 
-        static async Task IndexDir(long repoId, string siteName, string rootPath, string itemPath,
-                                   IRepositoryContentsClient client, IndexDocumentsBatch<Doc> batch,
-                                   IDictionary<string, string> hashDict,
-                                   ILogger log)
+        static async Task ProcessFile(
+            Configuration.Site siteCfg, IndexDocumentsBatch<Doc> batch, IDictionary<string, string> hashDict, ILogger log,
+            string id, string itemPath, GitTools.GetFileContent getContent)
         {
-            var repoDirPath = rootPath + itemPath;
-            var items = await client.GetAllContents(repoId, repoDirPath);
-            log.LogDebug($"Indexing content of GitHub directory {repoDirPath}");
-            foreach (var item in items)
-            {
-                var newItemPath = $"{itemPath}/{item.Name}";
-                if (item.Type == ContentType.Dir)
-                    await IndexDir(repoId, siteName, rootPath, newItemPath, client, batch, hashDict, log);
-                else if (item.Type == ContentType.File)
-                    await IndexFile(repoId, siteName, rootPath, item, newItemPath, client, batch, hashDict, log);
-            }
-        }
-
-        static async Task IndexFile(long repoId, string siteName, string rootPath, RepositoryContent item, string itemPath,
-                              IRepositoryContentsClient client, IndexDocumentsBatch<Doc> batch,
-                              IDictionary<string, string> hashDict, ILogger log)
-        {
-            log.LogDebug($"Indexing GitHub file {item.Path}.");
-            var docPath = Regex.Replace(itemPath, @"\.[^/.]*$", "");
-
+            var docPath = siteCfg.DocRoot + Regex.Replace(itemPath, @"\.[^/.]*$", "") + "/";
             string indexedDocPath;
-            if (hashDict.TryGetValue(item.Sha, out indexedDocPath))
+            if (hashDict.TryGetValue(id, out indexedDocPath))
             {
                 // This particular file version has been indexed already. If the
                 // path changed, update it, otherwise we're good.
                 if (docPath == indexedDocPath)
                 {
-                    log.LogDebug($"Document {item.Sha} at {docPath} is already up to date.");
+                    log.LogDebug($"Document {id} at {docPath} is already up to date.");
                     return; // This version of this file is already indexed.
                 }
                 else
                 {
                     var doc = new Doc
                     {
-                        Id = item.Sha,
-                        Path = docPath
+                        Id = id,
+                        Path = docPath,
+                        Site = siteCfg.SiteName
                     };
                     batch.Actions.Add(IndexDocumentsAction.Merge(doc));
-                    log.LogDebug($"Updating path of {item.Sha} from {indexedDocPath} to {docPath}.");
-                    hashDict[item.Sha] = docPath; // Not strictly necessary.
+                    log.LogDebug($"Updating path of {id} from {indexedDocPath} to {docPath}.");
+                    hashDict[id] = docPath; // Not strictly necessary.
                     return;
                 }
 
             }
             if (itemPath.EndsWith(".md"))
             {
-                var fullItems = await client.GetAllContents(repoId, rootPath + itemPath);
-                var text = fullItems.First().Content;
-                Trace.Assert(!fullItems.Skip(1).Any());
-                Trace.Assert(!(text is null));
+                var text = await getContent(itemPath);
                 var m = Regex.Match(text, "^(---.*?^---)(.*)$", RegexOptions.Multiline | RegexOptions.Singleline);
                 var title = "";
                 if (m.Success)
@@ -141,16 +151,16 @@ namespace dwmuller.HomeNet
 
                 var doc = new Doc()
                 {
-                    Id = item.Sha,
-                    Site = siteName,
+                    Id = id,
+                    Site = siteCfg.SiteName,
                     Path = docPath,
                     Title = title,
                     Body = text
                 };
                 batch.Actions.Add(IndexDocumentsAction.Upload(doc));
-                log.LogDebug($"Uploading new doc version {item.Sha} at {docPath}.");
-                hashDict[item.Sha] = docPath; // Not strictly necessary.
+                log.LogDebug($"Uploading new doc version {id} at {docPath}.");
+                hashDict[id] = docPath; // Not strictly necessary.
             }
         }
-    }
+     }
 }
