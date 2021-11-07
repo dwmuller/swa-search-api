@@ -7,6 +7,6 @@
                 "excludedTypes": "Request"
             }
         },
-        "logLevel": {"default": "Debug"}
+        "logLevel": {"default": "Information"}
     }
 }
