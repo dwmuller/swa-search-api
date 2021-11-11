@@ -34,6 +34,12 @@ namespace dwmuller.HomeNet
 
             var user = StaticWebAppsAuth.Parse(req);
 
+            if (!user.IsInRole("admin"))
+            {
+                log.LogWarning($"Non-administrator attempted to retrieve site name list.");
+                return new UnauthorizedResult();
+            }
+
             var cfg = new Configuration(req);
             if (!requestedSites.Any())
             {

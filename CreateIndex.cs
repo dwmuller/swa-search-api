@@ -19,8 +19,8 @@ namespace dwmuller.HomeNet
         {
             log.LogInformation($"{nameof(CreateIndex)} processing HTTP request.");
 
-            var principal = StaticWebAppsAuth.Parse(req);
-            if (!principal.IsInRole("admin"))
+            var user = StaticWebAppsAuth.Parse(req);
+            if (!user.IsInRole("admin"))
             {
                 log.LogWarning($"Non-administrator attempted to (re)create index.");
                 return new UnauthorizedResult();

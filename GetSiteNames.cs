@@ -1,6 +1,4 @@
-using System.IO;
 using System.Linq;
-using System.Security.Claims;
 using System.Threading.Tasks;
 
 using Microsoft.AspNetCore.Mvc;
@@ -23,8 +21,8 @@ namespace dwmuller.HomeNet
         {
             log.LogInformation($"{nameof(Search)} processing HTTP request.");
 
-            var principal = StaticWebAppsAuth.Parse(req);
-            if (!principal.IsInRole("admin"))
+            var user = StaticWebAppsAuth.Parse(req);
+            if (!user.IsInRole("admin"))
             {
                 log.LogWarning($"Non-administrator attempted to retrieve site name list.");
                 return new UnauthorizedResult();

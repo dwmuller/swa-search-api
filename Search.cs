@@ -32,6 +32,11 @@ namespace dwmuller.HomeNet
             var cfg = new Configuration(req);
             var user = StaticWebAppsAuth.Parse(req);
 
+            if (user.Identity is null)
+            {
+                return new UnauthorizedResult();
+            }
+
             if (!requestedSites.Any())
             {
                 log.LogInformation($"Search: No sites specified");
