@@ -20,10 +20,18 @@ namespace dwmuller.HomeNet
     {
         [FunctionName("UpdateIndexFromRepo")]
         public static async Task<IActionResult> Run(
-            [HttpTrigger(AuthorizationLevel.Function, "get", "post", Route = null)] HttpRequest req,
+            [HttpTrigger(AuthorizationLevel.Function, "post", Route = null)] HttpRequest req,
             ILogger log)
         {
             log.LogInformation($"{nameof(UpdateIndexFromRepo)} processing HTTP request.");
+
+            var user = StaticWebAppsAuth.Parse(req);
+
+            if (!user.IsInRole("admin"))
+            {
+                log.LogWarning($"Non-administrator attempted to update index.");
+                return new UnauthorizedResult();
+            }
 
             string requestBody = await new StreamReader(req.Body).ReadToEndAsync();
             dynamic data = JsonConvert.DeserializeObject(requestBody);
@@ -31,14 +39,6 @@ namespace dwmuller.HomeNet
             string requestedSitesString = FunctionTools.GetStringParam(req, "sites", data) ?? string.Empty;
             var requestedSites = requestedSitesString.Split(',', System.StringSplitOptions.RemoveEmptyEntries);
             bool force = FunctionTools.GetBoolParam(req, "force", data) ?? false;
-
-            var user = StaticWebAppsAuth.Parse(req);
-
-            if (!user.IsInRole("admin"))
-            {
-                log.LogWarning($"Non-administrator attempted to retrieve site name list.");
-                return new UnauthorizedResult();
-            }
 
             var cfg = new Configuration(req);
             if (!requestedSites.Any())
@@ -129,7 +129,7 @@ namespace dwmuller.HomeNet
                         Site = siteCfg.SiteName
                     };
                     batch.Actions.Add(IndexDocumentsAction.Merge(doc));
-                    log.LogDebug($"Updating path of {id} from {indexedDocPath} to {docPath}.");
+                    log.LogInformation($"Updating path of {id} from {indexedDocPath} to {docPath}.");
                     hashDict[id] = docPath; // Not strictly necessary.
                     return;
                 }
@@ -151,6 +151,12 @@ namespace dwmuller.HomeNet
                     {
                         title = m.Groups[1].Value;
                     }
+                    // Try to get a parent from the frontmatter.
+                    m = Regex.Match(fm, @"^wiki_parent:\s+(.*)\s*$", RegexOptions.Multiline);
+                    if (m.Success)
+                    {
+                        title = $"{m.Groups[1].Value}/{title}";
+                    }
                 }
                 // Remove all non-word characters.
                 text = Regex.Replace(text, @"\W+", " ");
@@ -168,5 +174,5 @@ namespace dwmuller.HomeNet
                 hashDict[id] = docPath; // Not strictly necessary.
             }
         }
-     }
+    }
 }

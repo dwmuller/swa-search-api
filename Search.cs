@@ -23,6 +23,14 @@ namespace dwmuller.HomeNet
         {
             log.LogInformation($"{nameof(Search)}: Processing HTTP request.");
 
+            var user = StaticWebAppsAuth.Parse(req);
+
+            if (user.Identity is null)
+            {
+                log.LogWarning($"Unauthenticated user attempted to search.");
+                return new UnauthorizedResult();
+            }
+
             string requestBody = await new StreamReader(req.Body).ReadToEndAsync();
             dynamic data = JsonConvert.DeserializeObject(requestBody);
             string query = FunctionTools.GetStringParam(req, "query", data) ?? "*";
@@ -30,13 +38,6 @@ namespace dwmuller.HomeNet
             var requestedSites = requestedSitesString.Split(',', System.StringSplitOptions.RemoveEmptyEntries);
 
             var cfg = new Configuration(req);
-            var user = StaticWebAppsAuth.Parse(req);
-
-            if (user.Identity is null)
-            {
-                return new UnauthorizedResult();
-            }
-
             if (!requestedSites.Any())
             {
                 log.LogInformation($"Search: No sites specified");
