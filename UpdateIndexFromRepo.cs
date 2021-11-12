@@ -122,6 +122,7 @@ namespace dwmuller.HomeNet
                 }
                 else
                 {
+                    // This version of this file is indexed, but its path changed.
                     var doc = new Doc
                     {
                         Id = id,
@@ -172,6 +173,10 @@ namespace dwmuller.HomeNet
                 batch.Actions.Add(IndexDocumentsAction.Upload(doc));
                 log.LogDebug($"Uploading new doc version {id} at {docPath}.");
                 hashDict[id] = docPath; // Not strictly necessary.
+            }
+            else
+            {
+                log.LogDebug($"Declined to index {itemPath}.");
             }
         }
     }

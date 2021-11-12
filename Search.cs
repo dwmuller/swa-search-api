@@ -1,6 +1,5 @@
 using System.IO;
 using System.Linq;
-using System.Security.Claims;
 using System.Threading.Tasks;
 
 using Microsoft.AspNetCore.Mvc;
@@ -35,13 +34,14 @@ namespace dwmuller.HomeNet
             dynamic data = JsonConvert.DeserializeObject(requestBody);
             string query = FunctionTools.GetStringParam(req, "query", data) ?? "*";
             string requestedSitesString = FunctionTools.GetStringParam(req, "sites", data) ?? string.Empty;
-            var requestedSites = requestedSitesString.Split(',', System.StringSplitOptions.RemoveEmptyEntries);
+            var requestedSites = requestedSitesString.Split(' ', System.StringSplitOptions.RemoveEmptyEntries);
+            string orderBy = FunctionTools.GetStringParam(req, "orderBy", data) ?? "score";
 
             var cfg = new Configuration(req);
             if (!requestedSites.Any())
             {
-                log.LogInformation($"Search: No sites specified");
-                return new BadRequestObjectResult("No sites specified.");
+                log.LogInformation($"Search: No sites selected");
+                return new BadRequestObjectResult("No sites selected.");
             }
 
             var siteConfigs = ( 
@@ -75,10 +75,23 @@ namespace dwmuller.HomeNet
             options.Select.Add(nameof(Doc.Id));
             options.Select.Add(nameof(Doc.Title));
             options.Select.Add(nameof(Doc.Path));
+            switch (orderBy)
+            {
+                case "score":
+                    options.OrderBy.Add("search.score() desc");
+                    break;
+                case "title":
+                    options.OrderBy.Add(nameof(Doc.Title) + " asc");
+                    break;
+                default:
+                    log.LogWarning($"Search: User {user.Identity.Name} specified unknown orderBy value ${orderBy}.");
+                    return new BadRequestObjectResult("Invalid sort order.");
+            }
+            options.QueryType = Azure.Search.Documents.Models.SearchQueryType.Full;
+            options.SearchMode = Azure.Search.Documents.Models.SearchMode.All;
             log.LogDebug("Search: Starting search.");
             var response = (await searchClient.SearchAsync<Doc>(query, options));
             var results = await response.Value.GetResultsAsync().ToListAsync();
-
             return new OkObjectResult(results);
         }
     }
