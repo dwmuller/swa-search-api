@@ -1,3 +1,4 @@
+using System;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
@@ -10,6 +11,7 @@ using Microsoft.Extensions.Logging;
 
 using Azure.Search.Documents;
 using Newtonsoft.Json;
+using Azure;
 
 namespace dwmuller.HomeNet
 {
@@ -90,9 +92,16 @@ namespace dwmuller.HomeNet
             options.QueryType = Azure.Search.Documents.Models.SearchQueryType.Full;
             options.SearchMode = Azure.Search.Documents.Models.SearchMode.All;
             log.LogDebug("Search: Starting search.");
-            var response = (await searchClient.SearchAsync<Doc>(query, options));
-            var results = await response.Value.GetResultsAsync().ToListAsync();
-            return new OkObjectResult(results);
+            try
+            {
+                var response = (await searchClient.SearchAsync<Doc>(query, options));
+                var results = await response.Value.GetResultsAsync().ToListAsync();
+                return new OkObjectResult(results);
+            }
+            catch (RequestFailedException e)
+            {
+                return new BadRequestObjectResult(e.Message);
+            }
         }
     }
 }
