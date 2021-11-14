@@ -132,6 +132,7 @@ namespace dwmuller.HomeNet
 
             if (itemPath.EndsWith(".md"))
             {
+                // Processing a Markdown file.
                 if (status == ItemStatus.PathChanged)
                 {
                     UpdatePath(batch, pathToHash, hashToPath, itemHash, docPath);
@@ -232,12 +233,6 @@ namespace dwmuller.HomeNet
                 if (m.Success)
                 {
                     title = m.Groups[1].Value;
-                }
-                // Try to get a parent from the frontmatter.
-                m = Regex.Match(fm, @"^wiki_parent:\s+(.*)\s*$", RegexOptions.Multiline);
-                if (m.Success)
-                {
-                    title = $"{m.Groups[1].Value}/{title}";
                 }
             }
 
