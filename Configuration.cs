@@ -61,8 +61,20 @@ namespace dwmuller.HomeNet
                     GitHubRepoName =  "homenet",
                     GitHubRepoOwner = "dwmuller",
                     GitHubRepoDocRoot =  "src/household",
-                    DocRoot = "/household",
+                    PathPrefix = "/household",
+                    PathSuffix = "/",
                     Readers =  new []{"household", "admin"},
+                    Administrators = new [] {"admin"}
+                },
+                new Site
+                {
+                    SiteName = "sdxwiki",
+                    GitHubRepoName =  "sdxwiki",
+                    GitHubRepoOwner = "dwmuller",
+                    GitHubRepoDocRoot =  "src",
+                    PathPrefix = "/household",
+                    PathSuffix = "/",
+                    Readers =  new []{"sdx", "admin"},
                     Administrators = new [] {"admin"}
                 }
             };
@@ -75,8 +87,8 @@ namespace dwmuller.HomeNet
             public string GitHubRepoName { get; set; } = string.Empty;
             public string GitHubRepoOwner { get; set; } = string.Empty;
             public string GitHubRepoDocRoot { get; set; } = string.Empty;
-            public string DocRoot { get; set; } = string.Empty;
-
+            public string PathPrefix { get; set; } = string.Empty;
+            public string PathSuffix { get; set; } = string.Empty;
             public IList<string> Readers { get; set; } = new string[0];
             public IList<string> Administrators { get; set; } = new string[0];
 
