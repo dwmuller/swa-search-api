@@ -3,6 +3,9 @@ using Azure.Search.Documents.Indexes.Models;
 
 namespace dwmuller.HomeNet
 {
+    /// <summary>
+    /// Model for documents stored in the search index.
+    /// </summary>
     public partial class Doc
     {
 
@@ -11,16 +14,6 @@ namespace dwmuller.HomeNet
         /// </summary>
         [SearchableField(IsKey = true)]
         public string Id { get; set; }
-
-        /// <summary>
-        /// The site this document lives in.
-        /// </summary>
-        /// <remarks>
-        /// We use a single index for several sites. This value is used to
-        /// distinguish tenants. Most searches will filter on this. 
-        /// </remarks>
-        [SimpleField(IsFilterable = true, IsFacetable = true)]
-        public string Site { get; set; }
 
         /// <summary>
         /// The document's path, an absolute URL path.

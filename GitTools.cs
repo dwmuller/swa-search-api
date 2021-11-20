@@ -10,7 +10,7 @@ namespace dwmuller.HomeNet
 {
     static class GitTools
     {
-        public static GitHubClient CreateGitHubClient(string appName, string apiKey, Configuration.Site siteCfg)
+        public static GitHubClient CreateGitHubClient(string appName, string apiKey)
         {
             var client = new GitHubClient(new ProductHeaderValue(appName));
             var tokenAuth = new Credentials(apiKey);
@@ -20,17 +20,19 @@ namespace dwmuller.HomeNet
 
         public delegate Task<string> GetFileContent(string itemPath);
         public delegate Task ProcessFile(string id, string itemPath, GetFileContent getContent);
+        
         public static async Task VisitRepoFiles(
-            string appName, string apiKey, Configuration.Site siteCfg, ILogger log, ProcessFile processFile)
+            string appName, string apiKey, string repoOwner, string repoName, string repoDocRoot,
+            ILogger log, ProcessFile processFile)
         {
-            var githubClient = GitTools.CreateGitHubClient(appName, apiKey, siteCfg);
-            var repo = await githubClient.Repository.Get(siteCfg.GitHubRepoOwner, siteCfg.GitHubRepoName);
+            var githubClient = GitTools.CreateGitHubClient(appName, apiKey);
+            var repo = await githubClient.Repository.Get(repoOwner, repoName);
             var contentClient = githubClient.Repository.Content;
 
-            await VisitDir(repo.Id, siteCfg.SiteName, siteCfg.GitHubRepoDocRoot, "", contentClient, log, processFile);
+            await VisitDir(repo.Id, repoDocRoot, "", contentClient, log, processFile);
         }
         static async Task VisitDir(
-            long repoId, string siteName, string rootPath, string itemPath,
+            long repoId, string rootPath, string itemPath,
             IRepositoryContentsClient contentClient, ILogger log, ProcessFile processFile)
         {
             var repoDirPath = rootPath + itemPath;
@@ -50,7 +52,7 @@ namespace dwmuller.HomeNet
             {
                 var newItemPath = $"{itemPath}/{item.Name}";
                 if (item.Type == ContentType.Dir)
-                    await VisitDir(repoId, siteName, rootPath, newItemPath, contentClient, log, processFile);
+                    await VisitDir(repoId, rootPath, newItemPath, contentClient, log, processFile);
                 else if (item.Type == ContentType.File)
                 {
                     log.LogDebug($"Visiting GitHub file {item.Path}.");

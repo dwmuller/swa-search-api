@@ -4,6 +4,9 @@ using Microsoft.AspNetCore.Http;
 
 namespace dwmuller.HomeNet
 {
+    /// <summary>
+    /// General-purpose tools for Azure Static Web Site Functions.
+    /// </summary>
     static class FunctionTools
     {
         public static bool? GetBoolParam(HttpRequest req, string key, dynamic reqBody = null)

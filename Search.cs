@@ -1,4 +1,3 @@
-using System;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
@@ -35,45 +34,12 @@ namespace dwmuller.HomeNet
             string requestBody = await new StreamReader(req.Body).ReadToEndAsync();
             dynamic data = JsonConvert.DeserializeObject(requestBody);
             string query = FunctionTools.GetStringParam(req, "query", data) ?? "*";
-            string requestedSitesString = FunctionTools.GetStringParam(req, "sites", data) ?? string.Empty;
-            var requestedSites = requestedSitesString.Split(' ', System.StringSplitOptions.RemoveEmptyEntries);
             string orderBy = FunctionTools.GetStringParam(req, "orderBy", data) ?? "score";
 
             var cfg = new Configuration(req);
-            if (!requestedSites.Any())
-            {
-                log.LogInformation($"Search: No sites selected");
-                return new BadRequestObjectResult("No sites selected.");
-            }
 
-            var siteConfigs = ( 
-                from s in await cfg.GetSiteConfigs()
-                where requestedSites.Contains(s.SiteName)
-                select s).ToArray();
-
-            if (siteConfigs.Length != requestedSites.Length)
-            {
-                var names = string.Join(
-                    ", ", 
-                    from s in requestedSites where !siteConfigs.Any(c=>c.SiteName == s) select s);
-                log.LogWarning($"Search: User {user.Identity.Name} specified unknown site(s) ${names}.");
-                return new BadRequestObjectResult($"Unknown site(s) specified: {names}");
-            }
-            if (siteConfigs.Any(c => !user.CanRead(c)))
-            {
-                var names = string.Join(
-                    ", ", 
-                    from c in siteConfigs where !user.CanRead(c) select c.SiteName);
-                log.LogWarning($"Search: User {user.Identity.Name} not authorized to read site(s) ${names}.");
-                return new UnauthorizedResult();
-            }
-
-            var filter = $"search.in({nameof(Doc.Site)},'{string.Join(",",requestedSites)}')";
             var searchClient = IndexTools.CreateSearchClient(cfg);
-            var options = new SearchOptions()
-            {
-                Filter = filter
-            };
+            var options = new SearchOptions();
             options.Select.Add(nameof(Doc.Id));
             options.Select.Add(nameof(Doc.Title));
             options.Select.Add(nameof(Doc.Path));
