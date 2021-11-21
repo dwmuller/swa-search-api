@@ -40,10 +40,10 @@ namespace dwmuller.HomeNet
             var repoDirPath = rootPath + itemPath;
             foreach (var item in await _client.Repository.Content.GetAllContents(_repoId, repoDirPath))
             {
-                var newItemPath = $"{itemPath}/{item.Name}";
+                var newItemPath = $"{itemPath}{item.Name}";
                 if (item.Type == ContentType.Dir)
                 {
-                    await foreach (var subItem in GetDirFiles(rootPath, newItemPath))
+                    await foreach (var subItem in GetDirFiles(rootPath, newItemPath + "/"))
                     {
                         yield return subItem;
                     }
