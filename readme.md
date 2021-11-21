@@ -22,9 +22,9 @@ following settings. These are documented in the
   "IsEncrypted": false,
   "Values": {
     "FUNCTIONS_WORKER_RUNTIME": "dotnet",
-    "AppName": "my-wonderful-app",
-    "DocPathTemplate": "/myfiles/{0}/{1}/",
+    "DocPathTemplate": "/myfiles/{0}{1}/",
     "GitHubApiKey": "<from a GitHub user account>",
+    "GitHubAppName": "my-wonderful-app",
     "GitHubRepoName": "your repo's name",
     "GitHubRepoOwner": "you",
     "GitHubRepoDocRoot": "/src/<or wherever you keep your indexable files>",

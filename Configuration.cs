@@ -1,15 +1,8 @@
 using System;
-using System.Collections.Generic;
 using System.IO;
-using System.Linq;
-using System.Security.Claims;
-using System.Text.RegularExpressions;
-using System.Threading.Tasks;
 
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
-
-using Newtonsoft.Json;
 
 namespace dwmuller.HomeNet
 {
@@ -73,8 +66,8 @@ namespace dwmuller.HomeNet
         /// order, are.
         /// <list type="bullet">
         /// <item>The source file's directory relative to <see
-        /// cref="GitHubRepoDocRoom"/>, without leading or trailing path
-        /// separators.</item>
+        /// cref="GitHubRepoDocRoot"/>, with a trailing but not a leading path
+        /// separator.</item>
         /// <item>The source file's base name.</item>
         /// <item>The source file's extension, including the period.</item.
         /// </summary>
@@ -89,6 +82,8 @@ namespace dwmuller.HomeNet
         public string RepoPathToDocPath(string itemPath)
         {
             var path = Path.GetDirectoryName(itemPath);
+            if (!string.IsNullOrEmpty(path))
+                path += "/";
             var name = Path.GetFileNameWithoutExtension(itemPath);
             var ext = Path.GetExtension(itemPath);
             return string.Format(DocPathTemplate, path, name, ext);

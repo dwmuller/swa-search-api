@@ -148,7 +148,7 @@ namespace dwmuller.HomeNet
         {
             string title = ExtractFrontMatter(ref text);
             // Remove all non-word characters.
-            text = Regex.Replace(text, @"\W+", " ");
+            //text = Regex.Replace(text, @"\W+", " ");
 
             var doc = new Doc()
             {
