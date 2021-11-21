@@ -34,8 +34,7 @@ following settings. These are documented in the
     "SearchServiceUri": "https://<your resource name>.search.windows.net",
   }
 }
+```
 
 For deployment, all of those values have to be defined in the SWA resource's configuration.
-
-```
 
