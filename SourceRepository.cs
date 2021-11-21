@@ -6,33 +6,28 @@ using Octokit;
 
 namespace dwmuller.HomeNet
 {
-    class SourceRepository
+
+    class GitHubRepository : ISourceRepository
     {
         private GitHubClient _client;
         long _repoId;
 
-        public static async Task<SourceRepository> GetGitHubRepository(
-            string appName, string apiKey, string repoOwner, string repoName)
+        public static async Task<ISourceRepository> Create(Configuration cfg)
         {
-            var client = new GitHubClient(new ProductHeaderValue(appName));
-            var tokenAuth = new Credentials(apiKey);
+            var client = new GitHubClient(new ProductHeaderValue(cfg.GitHubAppName));
+            var tokenAuth = new Credentials(cfg.GitHubApiKey);
             client.Credentials = tokenAuth;
-            var repo = await client.Repository.Get(repoOwner, repoName);
-            return new SourceRepository(client, repo.Id);
+            var repo = await client.Repository.Get(cfg.GitHubRepoOwner, cfg.GitHubRepoName);
+            return new GitHubRepository(client, repo.Id);
         }
-        
-        private SourceRepository (GitHubClient client, long repoId)
+
+        internal GitHubRepository(GitHubClient client, long repoId)
         {
             _client = client;
             _repoId = repoId;
         }
 
-        public struct RepoFile {
-            public string Hash;
-            public string Path; // Relative to searched root.
-        }
-
-        public async IAsyncEnumerable<RepoFile> GetFiles(string repoDocRoot)
+        public async IAsyncEnumerable<ISourceRepository.RepoFile> GetFiles(string repoDocRoot)
         {
             await foreach (var item in GetDirFiles(repoDocRoot, ""))
             {
@@ -40,8 +35,7 @@ namespace dwmuller.HomeNet
             }
         }
 
-        private async IAsyncEnumerable<RepoFile> GetDirFiles(
-            string rootPath, string itemPath)
+        private async IAsyncEnumerable<ISourceRepository.RepoFile> GetDirFiles(string rootPath, string itemPath)
         {
             var repoDirPath = rootPath + itemPath;
             foreach (var item in await _client.Repository.Content.GetAllContents(_repoId, repoDirPath))
@@ -56,12 +50,12 @@ namespace dwmuller.HomeNet
                 }
                 else if (item.Type == ContentType.File)
                 {
-                    yield return new RepoFile { Hash = item.Sha, Path = newItemPath };
+                    yield return new ISourceRepository.RepoFile { Hash = item.Sha, Path = newItemPath };
                 }
             }
         }
 
-        public async Task<string> GetFileContent(string itemPath) 
+        public async Task<string> GetFileContent(string itemPath)
         {
             var fullItems = await _client.Repository.Content.GetAllContents(_repoId, itemPath);
             var text = fullItems.First().Content;

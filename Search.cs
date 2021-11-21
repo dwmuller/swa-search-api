@@ -1,5 +1,4 @@
 using System.IO;
-using System.Linq;
 using System.Threading.Tasks;
 
 using Microsoft.AspNetCore.Mvc;
@@ -7,8 +6,6 @@ using Microsoft.Azure.WebJobs;
 using Microsoft.Azure.WebJobs.Extensions.Http;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
-
-using Azure.Search.Documents;
 using Newtonsoft.Json;
 using Azure;
 
@@ -35,39 +32,32 @@ namespace dwmuller.HomeNet
             dynamic data = JsonConvert.DeserializeObject(requestBody);
             string query = FunctionTools.GetStringParam(req, "query", data) ?? "*";
             string orderBy = FunctionTools.GetStringParam(req, "orderBy", data) ?? "score";
+            SearchResultsOrder? searchOrder = orderBy switch 
+            {
+                "score" => SearchResultsOrder.Score,
+                "title" => SearchResultsOrder.Title,
+                _ => null
+            };
+            if (!searchOrder.HasValue)
+            {
+                log.LogWarning($"Search: Unknown orderBy value ${orderBy}.");
+                return new BadRequestObjectResult("Invalid sort order.");
+            }
 
             var cfg = new Configuration(req);
-
-            var searchClient = IndexTools.CreateSearchClient(cfg);
-            var options = new SearchOptions();
-            options.Select.Add(nameof(Doc.RepoHash));
-            options.Select.Add(nameof(Doc.Title));
-            options.Select.Add(nameof(Doc.DocPath));
-            switch (orderBy)
-            {
-                case "score":
-                    options.OrderBy.Add("search.score() desc");
-                    break;
-                case "title":
-                    options.OrderBy.Add(nameof(Doc.Title) + " asc");
-                    break;
-                default:
-                    log.LogWarning($"Search: User {user.Identity.Name} specified unknown orderBy value ${orderBy}.");
-                    return new BadRequestObjectResult("Invalid sort order.");
-            }
-            options.QueryType = Azure.Search.Documents.Models.SearchQueryType.Full;
-            options.SearchMode = Azure.Search.Documents.Models.SearchMode.All;
-            log.LogDebug("Search: Starting search.");
+            var index = new SearchIndex(cfg, log);
             try
             {
-                var response = (await searchClient.SearchAsync<Doc>(query, options));
-                var results = await response.Value.GetResultsAsync().ToListAsync();
+                var results = await index.Search(query, searchOrder);
                 return new OkObjectResult(results);
             }
             catch (RequestFailedException e)
             {
-                return new BadRequestObjectResult(e.Message);
+                if (e.Status == StatusCodes.Status400BadRequest)
+                    return new BadRequestObjectResult(e.Message);
+                throw;
             }
         }
+
     }
 }

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Security.Claims;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 
 using Microsoft.AspNetCore.Http;
@@ -56,6 +57,12 @@ namespace dwmuller.HomeNet
         /// cref="GitHubRepoDocRoot"/>.
         /// </remarks>
         public string DocPathSuffix { get; set; } = string.Empty;
+
+
+        public string RepoPathToDocPath(string itemPath)
+        {
+            return DocPathPrefix + Regex.Replace(itemPath, @"\.[^/.]*$", "") + DocPathSuffix;
+        }
 
     }
 }
