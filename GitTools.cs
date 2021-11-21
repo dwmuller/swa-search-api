@@ -1,65 +1,71 @@
-using System.Diagnostics;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
-
-using Microsoft.Extensions.Logging;
 
 using Octokit;
 
 namespace dwmuller.HomeNet
 {
-    static class GitTools
+    class SourceRepository
     {
-        public static GitHubClient CreateGitHubClient(string appName, string apiKey)
+        private GitHubClient _client;
+        long _repoId;
+
+        public static async Task<SourceRepository> GetGitHubRepository(
+            string appName, string apiKey, string repoOwner, string repoName)
         {
             var client = new GitHubClient(new ProductHeaderValue(appName));
             var tokenAuth = new Credentials(apiKey);
             client.Credentials = tokenAuth;
-            return client;
+            var repo = await client.Repository.Get(repoOwner, repoName);
+            return new SourceRepository(client, repo.Id);
         }
-
-        public delegate Task<string> GetFileContent(string itemPath);
-        public delegate Task ProcessFile(string id, string itemPath, GetFileContent getContent);
         
-        public static async Task VisitRepoFiles(
-            string appName, string apiKey, string repoOwner, string repoName, string repoDocRoot,
-            ILogger log, ProcessFile processFile)
+        private SourceRepository (GitHubClient client, long repoId)
         {
-            var githubClient = GitTools.CreateGitHubClient(appName, apiKey);
-            var repo = await githubClient.Repository.Get(repoOwner, repoName);
-            var contentClient = githubClient.Repository.Content;
-
-            await VisitDir(repo.Id, repoDocRoot, "", contentClient, log, processFile);
+            _client = client;
+            _repoId = repoId;
         }
-        static async Task VisitDir(
-            long repoId, string rootPath, string itemPath,
-            IRepositoryContentsClient contentClient, ILogger log, ProcessFile processFile)
+
+        public struct RepoFile {
+            public string Hash;
+            public string Path; // Relative to searched root.
+        }
+
+        public async IAsyncEnumerable<RepoFile> GetFiles(string repoDocRoot)
+        {
+            await foreach (var item in GetDirFiles(repoDocRoot, ""))
+            {
+                yield return item;
+            }
+        }
+
+        private async IAsyncEnumerable<RepoFile> GetDirFiles(
+            string rootPath, string itemPath)
         {
             var repoDirPath = rootPath + itemPath;
-            var items = await contentClient.GetAllContents(repoId, repoDirPath);
-            GetFileContent getContent = async (string itemPath) =>
-            {
-                var fullItems = await contentClient.GetAllContents(repoId, rootPath + itemPath);
-                var text = fullItems.First().Content;
-                Trace.Assert(!fullItems.Skip(1).Any());
-                Trace.Assert(!(text is null));
-                return text;
-            };
-
-            log.LogDebug($"Indexing content of GitHub directory {repoDirPath}");
-
-            foreach (var item in items)
+            foreach (var item in await _client.Repository.Content.GetAllContents(_repoId, repoDirPath))
             {
                 var newItemPath = $"{itemPath}/{item.Name}";
                 if (item.Type == ContentType.Dir)
-                    await VisitDir(repoId, rootPath, newItemPath, contentClient, log, processFile);
+                {
+                    await foreach (var subItem in GetDirFiles(rootPath, newItemPath))
+                    {
+                        yield return subItem;
+                    }
+                }
                 else if (item.Type == ContentType.File)
                 {
-                    log.LogDebug($"Visiting GitHub file {item.Path}.");
-                    await processFile(item.Sha, newItemPath, getContent);
+                    yield return new RepoFile { Hash = item.Sha, Path = newItemPath };
                 }
             }
         }
 
+        public async Task<string> GetFileContent(string itemPath) 
+        {
+            var fullItems = await _client.Repository.Content.GetAllContents(_repoId, itemPath);
+            var text = fullItems.First().Content;
+            return text;
+        }
     }
 }

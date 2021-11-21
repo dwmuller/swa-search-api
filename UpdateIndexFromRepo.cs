@@ -14,6 +14,7 @@ using Azure.Search.Documents;
 using Azure.Search.Documents.Models;
 using Newtonsoft.Json;
 using System.Diagnostics;
+using System.Globalization;
 
 namespace dwmuller.HomeNet
 {
@@ -42,34 +43,68 @@ namespace dwmuller.HomeNet
             var cfg = new Configuration(req);
 
             var searchClient = IndexTools.CreateSearchClient(cfg, withWritePermissions: true);
+            var repoClient = await SourceRepository.GetGitHubRepository(
+                cfg.GitHubAppName, cfg.GitHubApiKey, cfg.GitHubRepoOwner, cfg.GitHubRepoName);
 
             // Get existing document paths and their repository file hashes.
             var searchOptions = new SearchOptions();
-            searchOptions.Select.Add(nameof(Doc.Id));
-            searchOptions.Select.Add(nameof(Doc.Path));
-            var hashToPath = 
+            searchOptions.Select.Add(nameof(Doc.DocPath));
+            searchOptions.Select.Add(nameof(Doc.RepoHash));
+            searchOptions.Select.Add(nameof(Doc.RepoPath));
+            var docPathToDoc = 
                 await
                     (await searchClient.SearchAsync<Doc>("", searchOptions))
                     .Value
                     .GetResultsAsync()
-                    .ToDictionaryAsync(item => item.Document.Id, item => item.Document.Path);
-            log.LogDebug($"Retrieved {hashToPath.Count} doc hashes.");
+                    .ToDictionaryAsync(item => item.Document.DocPath, item => item.Document);
+            log.LogDebug($"Found {docPathToDoc.Count} docs.");
+
+            // Get existing repository item paths and their file hashes.
+            // We're only interested in Markdown files right now.
+            var docPathToRepoFile = await repoClient.GetFiles(cfg.GitHubRepoDocRoot)
+                .Where( item => item.Path.EndsWith(".md", ignoreCase: true, CultureInfo.InvariantCulture))
+                .ToDictionaryAsync(pair => RepoPathToDocPath(cfg, pair.Path), pair => pair);
+            log.LogDebug($"Found {docPathToRepoFile.Count} repo items of interest.");
+                
 
             // If we're forcing a rebuild of index content, then delete all
             // documents on this site first.
-            if (force && hashToPath.Any())
+            if (force && docPathToDoc.Any())
             {
-                searchClient.DeleteDocuments(nameof(Doc.Id), hashToPath.Keys);
-                log.LogInformation($"Forced site update: {hashToPath.Count} documents deleted.");
-                hashToPath.Clear();
+                searchClient.DeleteDocuments(docPathToDoc.Values);
+                log.LogInformation($"Forced site update: {docPathToDoc.Count} documents deleted.");
+                docPathToDoc.Clear();
             }
 
-            var pathToHash = hashToPath.ToDictionary(pair => pair.Value, pair => pair.Key);
             var batch = new IndexDocumentsBatch<Doc>();
-            await GitTools.VisitRepoFiles(
-                cfg.GitHubAppName, cfg.GitHubApiKey, cfg.GitHubRepoOwner,
-                cfg.GitHubRepoName, cfg.GitHubRepoDocRoot, log,
-                (id, itemPath, getContent) => ProcessFile(cfg, batch, hashToPath, pathToHash, log, id, itemPath, getContent));
+            foreach (var entry in docPathToDoc)
+            {
+                SourceRepository.RepoFile item;
+                if (!docPathToRepoFile.TryGetValue(entry.Key, out item))
+                {
+                    // Document source no longer exists in repo, or was moved to
+                    // a different path.
+                    batch.Actions.Add(IndexDocumentsAction.Delete(entry.Value));
+                    log.LogInformation($"Removing index entry for {entry.Value}.");
+                }
+                else if (entry.Key != item.Hash)
+                {
+                    // The document was indexed, but its content has changed.
+                    var text = await repoClient.GetFileContent(cfg.GitHubRepoDocRoot + item.Path);
+                    UploadMarkdownEntry(batch, item.Hash, item.Path, text, entry.Key);
+                    log.LogInformation($"Updating index entry for {entry.Value}.");
+                }
+            }
+            foreach (var entry in docPathToRepoFile)
+            {
+                if (!docPathToDoc.ContainsKey(entry.Key))
+                {
+                    // New document.
+                    var text = await repoClient.GetFileContent(cfg.GitHubRepoDocRoot + entry.Value.Path);
+                    UploadMarkdownEntry(batch, entry.Value.Hash, entry.Value.Path, text, entry.Key);
+                    log.LogInformation($"Adding index entry for {entry.Key}.");
+                }
+            }
 
             if (batch.Actions.Any())
             {
@@ -78,109 +113,41 @@ namespace dwmuller.HomeNet
             return new OkObjectResult($"Indexed {batch.Actions.Count} documents.");
         }
 
-        static async Task ProcessFile(
-            Configuration cfg, IndexDocumentsBatch<Doc> batch, IDictionary<string, string> hashToPath, IDictionary<string, string> pathToHash, ILogger log,
-            string itemHash, string itemPath, GitTools.GetFileContent getContent)
+        private static string RepoPathToDocPath(Configuration cfg, string itemPath)
         {
-            // To form the document URL path, remove the file extension, and add
-            // the site's prefix and suffix.
-            var docPath = cfg.PathPrefix + Regex.Replace(itemPath, @"\.[^/.]*$", "") + cfg.PathSuffix;
-            var status = GetRepoItemStatus(hashToPath, pathToHash, itemHash, docPath);
-            if (status == ItemStatus.Indexed)
-            {
-                log.LogDebug($"Doc {itemHash} at {docPath} is already up to date.");
-                return; // This version of this file is already indexed.
-            }
-
-            if (status == ItemStatus.ContentChanged)
-            {
-                // This doc was indexed, but its content has changed, thus its
-                // old entry is obsolete.
-                batch.Actions.Add(IndexDocumentsAction.Delete(new Doc { Id = itemHash }));
-                log.LogInformation($"Removing doc {itemHash} as {docPath} due to stale content.");
-            }
-
-            if (itemPath.EndsWith(".md"))
-            {
-                // Processing a Markdown file.
-                if (status == ItemStatus.PathChanged)
-                {
-                    UpdatePath(batch, pathToHash, hashToPath, itemHash, docPath);
-                    log.LogDebug($"Updating path of doc {itemHash} at {docPath}.");
-                    return;
-                }
-                var text = await getContent(itemPath);
-                string title = ExtractFrontMatter(ref text);
-                // Remove all non-word characters.
-                text = Regex.Replace(text, @"\W+", " ");
-
-                var doc = new Doc()
-                {
-                    Id = itemHash,
-                    Path = docPath,
-                    Title = title,
-                    Body = text
-                };
-                Trace.Assert((new []{ItemStatus.ContentChanged, ItemStatus.New}).Contains(status));
-                batch.Actions.Add(IndexDocumentsAction.Upload(doc));
-                log.LogDebug($"Uploading new doc version {itemHash} at {docPath}.");
-                hashToPath[itemHash] = docPath;
-                pathToHash[docPath] = itemHash;
-            }
-            else if (status == ItemStatus.PathChanged)
-            {
-                // This item was indexed, but the item's path changed such
-                // that we no longer want to index it.
-                log.LogInformation($"Removing indexed doc {itemHash}, now named {itemPath}.");
-                batch.Actions.Add(IndexDocumentsAction.Delete(new Doc { Id = itemHash }));
-                hashToPath.Remove(itemHash);
-                pathToHash.Remove(docPath);
-
-            }
-            else
-            {
-                Trace.Assert(status == ItemStatus.New);
-                log.LogDebug($"Declined to index doc {itemHash} at {itemPath}.");
-            }
+            return cfg.DocPathPrefix + Regex.Replace(itemPath, @"\.[^/.]*$", "") + cfg.DocPathSuffix;
         }
 
-        enum ItemStatus
+        private static void UploadMarkdownEntry(
+            IndexDocumentsBatch<Doc> batch,
+            string itemHash, string itemPath, string text, string docPath)
         {
-            Indexed,
-            New,
-            ContentChanged,
-            PathChanged
-        }
+            string title = ExtractFrontMatter(ref text);
+            // Remove all non-word characters.
+            text = Regex.Replace(text, @"\W+", " ");
 
-        private static ItemStatus GetRepoItemStatus(IDictionary<string, string> hashToPath, IDictionary<string, string> pathToHash, string itemHash, string docPath)
-        {
-            string indexedDocPath;
-            if (hashToPath.TryGetValue(itemHash, out indexedDocPath))
+            var doc = new Doc()
             {
-                if (indexedDocPath == docPath)
-                    return ItemStatus.Indexed;
-                return ItemStatus.PathChanged;
-            }
-            string indexedItemHash;
-            if (pathToHash.TryGetValue(docPath, out indexedItemHash))
-            {
-                if (indexedItemHash == itemHash)
-                    return ItemStatus.Indexed;
-                return ItemStatus.ContentChanged;
-            }
-            return ItemStatus.New;
+                DocPath = docPath,
+                RepoHash = itemHash,
+                RepoPath = itemPath,
+                Title = title,
+                Body = text
+            };
+            batch.Actions.Add(IndexDocumentsAction.Upload(doc));
         }
 
         private static void UpdatePath(
             IndexDocumentsBatch<Doc> batch, 
             IDictionary<string, string> hashToPath, IDictionary<string, string> pathToHash, 
-            string itemHash, string docPath)
+            string itemHash, string itemPath, string docPath)
         {
             // This version of this file is indexed, but its path changed.
             var doc = new Doc
             {
-                Id = itemHash,
-                Path = docPath
+                RepoHash = itemHash,
+                RepoPath = itemPath,
+                DocPath = docPath
             };
             batch.Actions.Add(IndexDocumentsAction.Merge(doc));
             hashToPath[itemHash] = docPath;

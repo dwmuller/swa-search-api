@@ -10,16 +10,29 @@ namespace dwmuller.HomeNet
     {
 
         /// <summary>
-        /// The document's identifier, which is its Git hash.
-        /// </summary>
-        [SearchableField(IsKey = true)]
-        public string Id { get; set; }
-
-        /// <summary>
-        /// The document's path, an absolute URL path.
+        /// The document's path, which may be relative.
         /// </summary>
         [SimpleField]
-        public string Path { get; set; }
+        public string DocPath { get; set; }
+
+        /// <summary>
+        /// The document's identifier, which is its Git hash.
+        /// </summary>
+        /// <remarks>
+        /// We use this as a key for index entries. The doc path would be a more
+        /// natural fit, but limitations on the character set make this more
+        /// convenient.
+        /// </remarks>
+        [SearchableField(IsKey = true)]
+        public string RepoHash { get; set; }
+
+        /// <summary>
+        /// Repository path of the source file, relative to <see
+        /// cref="Configuration.GitHubRepoDocRoot"/>, including the file
+        /// extension.
+        /// </summary>
+        [SimpleField]
+        public string RepoPath { get; set; }
 
         /// <summary>
         ///  The document's title, if any, taken from front matter.

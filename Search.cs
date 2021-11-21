@@ -40,9 +40,9 @@ namespace dwmuller.HomeNet
 
             var searchClient = IndexTools.CreateSearchClient(cfg);
             var options = new SearchOptions();
-            options.Select.Add(nameof(Doc.Id));
+            options.Select.Add(nameof(Doc.RepoHash));
             options.Select.Add(nameof(Doc.Title));
-            options.Select.Add(nameof(Doc.Path));
+            options.Select.Add(nameof(Doc.DocPath));
             switch (orderBy)
             {
                 case "score":

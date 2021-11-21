@@ -20,6 +20,7 @@ namespace dwmuller.HomeNet
         }
 
         public Uri SearchServiceUri { get; set; }
+
         public string SearchIndexName { get; set; } = string.Empty;
 
         public string SearchServiceQueryApiKey { get; set; } = string.Empty;
@@ -44,7 +45,7 @@ namespace dwmuller.HomeNet
         /// The path to which this is prepended is relative to <see
         /// cref="GitHubRepoDocRoot"/>.
         /// </remarks>
-        public string PathPrefix { get; set; } = string.Empty;
+        public string DocPathPrefix { get; set; } = string.Empty;
 
         /// <summary>
         /// Suffix added to the an item's relative path in the source repository
@@ -54,7 +55,7 @@ namespace dwmuller.HomeNet
         /// The path to which this is appended is relative to <see
         /// cref="GitHubRepoDocRoot"/>.
         /// </remarks>
-        public string PathSuffix { get; set; } = string.Empty;
+        public string DocPathSuffix { get; set; } = string.Empty;
 
     }
 }
