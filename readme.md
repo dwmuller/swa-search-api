@@ -8,13 +8,13 @@ the same SWA site. I use this code in several private Web sites, which is why
 I've separated it out this way.
 
 This may be helpful to others as example code, but it's not packaged for ease of
-use. A Git submodule was the simplest thing that would work for me, and adequate
-for my scale of work.
+use. This module is included by my other projects as a Git submodule which was
+the simplest thing that would work for me, and adequate for my scale of work.
 
 ## Software development
 
 For local work, you need a local.settings.json file in the api folder, with the
-following settings. These are documented in the 
+following settings. These are documented in the
 [Configuration class](/api/Configuration.cs).
 
 ```json
@@ -37,4 +37,3 @@ following settings. These are documented in the
 ```
 
 For deployment, all of those values have to be defined in the SWA resource's configuration.
-
